@@ -78,6 +78,7 @@ local function struct(name) return config.Struct[name] end
 local function enumValues(name) return config.Enum[name].values end
 local function structByID(structID) return config.Struct.FromID(structID) end
 local function structName(structID) return id.Struct.FromID(structID) end
+local function item(itemID) return config.Obj.FromID(itemID) end
 local function itemName(itemID) return config.Obj.FromID(itemID).name end
 local function componentID(name) return id.Component[name] end
 local function sprite(name) return id.Sprite[name] end
@@ -106,6 +107,10 @@ function gameApi.StructByID(structID) return (Try(structByID, structID)) end
 ---@param structID integer
 ---@return string? name
 function gameApi.StructName(structID) return (Try(structName, structID)) end
+--- An item's config by id.
+---@param itemID integer
+---@return userdata? item
+function gameApi.Item(itemID) return (Try(item, itemID)) end
 --- An item's name by id.
 ---@param itemID integer
 ---@return string? name
@@ -220,16 +225,16 @@ local function objectID(object) return object.id end
 ---@param object userdata
 ---@return string?
 function gameApi.ConfigName(object) return (Read("a config's name", configName, object)) end
---- Whether a struct has a param.
----@param object userdata A struct config.
+--- Whether a config has a param.
+---@param object userdata A struct or item config.
 ---@param param userdata A param config.
 ---@return boolean
-function gameApi.HasParam(object, param) return Read("whether a struct has a param", hasParam, object, param) == true end
---- A struct's value for a param.
----@param object userdata A struct config.
+function gameApi.HasParam(object, param) return Read("whether a config has a param", hasParam, object, param) == true end
+--- A config's value for a param.
+---@param object userdata A struct or item config.
 ---@param param userdata A param config.
 ---@return any
-function gameApi.ParamValue(object, param) return (Read("a struct's param", paramValue, object, param)) end
+function gameApi.ParamValue(object, param) return (Read("a config's param", paramValue, object, param)) end
 --- A config's id.
 ---@param object userdata
 ---@return integer?
@@ -243,6 +248,22 @@ function gameApi.ItemID(value)
     if type(value) ~= "userdata" then return nil end
     return gameApi.ID(value)
 end
+
+local function inventory(invID) return Inventory.Find(invID) end
+local function slotItem(inv, index)
+    local slot = inv:GetSlot(index)
+    return slot and slot.obj
+end
+
+--- An inventory by id.
+---@param invID integer
+---@return userdata? inv nil before the server has sent it.
+function gameApi.Inventory(invID) return (Try(inventory, invID)) end
+--- The item config in an inventory's slot.
+---@param inv userdata
+---@param index integer 1-indexed.
+---@return userdata? item An empty slot gives an item with id -1.
+function gameApi.InventoryItem(inv, index) return (Read("an inventory slot", slotItem, inv, index)) end
 
 local function component(name)
     local combinedID = id.Component[name]

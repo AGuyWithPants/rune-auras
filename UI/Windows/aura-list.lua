@@ -326,8 +326,8 @@ end
 
 -- A row's hit area and icons take the mouse, so a wheel turned over them
 -- never reaches the list's own scrolling; they scroll it themselves, this
--- far per notch. ONSCROLLWHEEL's delta is notches turned, positive down
--- (seen in game), and a row a notch matches the list's own scrolling.
+-- far per notch. ONSCROLLWHEEL's delta is notches turned, positive down,
+-- and a row a notch matches the list's own scrolling.
 local WHEEL_STEP = ROW_STEP
 
 --- Scrolls the list for the mouse wheel turned over one of its rows.

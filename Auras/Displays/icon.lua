@@ -42,6 +42,8 @@ local newRectangle = rectangles.Filled
 ---@field frame Border? Made when it first has a thickness.
 ---@field greySprite userdata? Optional parts, made when first used (see ensurePart).
 ---@field objectSprite userdata?
+---@field iconSpriteID integer? The source's sprite icon, from its details (see showIcon).
+---@field object integer? The item icon shown, if any.
 ---@field radial userdata?
 ---@field wipe userdata?
 ---@field texts TextNodes
@@ -371,26 +373,24 @@ function Icon:layoutFrame(aura)
     end
 end
 
---- Shows the source's icon: its sprite, or its item, or the placeholder,
---- and notes the grey copy if there is one.
----@param source DataSource?
----@return integer? spriteID The sprite shown; nil for an item icon.
-function Icon:applySourceIcon(source)
-    -- The item from the source's details, which can differ from its own
-    -- (the quiver's ammo; see SetDetails).
-    local object = nil
-    if source ~= nil then object = select(3, dataSources.Details(source.id)) end
-    local sprite = source and source.icon or nil
-    if sprite == nil and object == nil then sprite = PLACEHOLDER_SPRITE end
+--- Shows an icon: a sprite, or an item, or the placeholder when it has
+--- neither, and notes the grey copy if there is one.
+---@param spriteID integer?
+---@param objectID integer?
+---@return integer? shownSprite The sprite shown; nil for an item icon.
+function Icon:showIcon(spriteID, objectID)
+    self.iconSpriteID = spriteID
+    local sprite = spriteID
+    if sprite == nil and objectID == nil then sprite = PLACEHOLDER_SPRITE end
     if sprite ~= nil then self.sprite.spriteID = sprite end
     self:showPart(self.sprite, sprite ~= nil)
-    if object ~= nil then self:ensurePart("objectSprite") end
-    if object ~= self.object then
-        self.object = object
-        if self.objectSprite ~= nil then SourceIcon.ShowObject(self.objectSprite, object) end
+    if objectID ~= nil then self:ensurePart("objectSprite") end
+    if objectID ~= self.object then
+        self.object = objectID
+        if self.objectSprite ~= nil then SourceIcon.ShowObject(self.objectSprite, objectID) end
     end
-    self:showPart(self.objectSprite, object ~= nil)
-    local grey = source and greyIcon(source.icon) or nil
+    self:showPart(self.objectSprite, objectID ~= nil)
+    local grey = greyIcon(spriteID)
     if grey ~= nil then self:ensurePart("greySprite") end
     self.hasGrey = grey ~= nil and pcall(setSpriteImage, self.greySprite, grey)
     return sprite
@@ -399,7 +399,7 @@ end
 --- Sets up the swipe the source can be drawn with (see DrawnSwipe).
 ---@param aura IconOptions
 ---@param source DataSource?
----@param sprite integer? The sprite shown (see applySourceIcon).
+---@param sprite integer? The sprite shown (see showIcon).
 function Icon:applySwipe(aura, source, sprite)
     self.swipeStyle = Icon.DrawnSwipe(aura.swipeStyle, source)
     if self.swipeStyle == "radial" then
@@ -438,7 +438,10 @@ function Icon:Apply(aura)
         self:stopRadial()
         self.radialRemaining = nil
     end
-    local sprite = self:applySourceIcon(source)
+    -- From the details, which can differ from the source's own icon (see SetDetails).
+    local spriteID, objectID = nil, nil
+    if source ~= nil then spriteID, objectID = select(2, dataSources.Details(source.id)) end
+    local sprite = self:showIcon(spriteID, objectID)
     self:applySwipe(aura, source, sprite)
 
     self.tint = aura.iconColour or NORMAL_TINT
@@ -457,17 +460,22 @@ function Icon:Apply(aura)
     self:redraw()
 end
 
---- The source's name, for $name, and its item icon, which can change while
---- it runs (the quiver's ammo, also named for $arrow). Called every frame.
---- (Whether it shows a sprite or an item comes from the source in Apply.)
+--- The source's name, for $name, and its icon, which can change while it
+--- runs (the quiver's ammo, also named for $arrow; the worn weapon's
+--- special; whatever is being channelled). Called every frame.
 ---@param name string?
 ---@param spriteID integer?
 ---@param objectID integer?
 ---@param arrow string? For $arrow.
 function Icon:SetDetails(name, spriteID, objectID, arrow)
-    if self.object ~= nil and objectID ~= nil and objectID ~= self.object then
-        self.object = objectID
-        SourceIcon.ShowObject(self.objectSprite, objectID)
+    if spriteID ~= self.iconSpriteID or objectID ~= self.object then
+        local sprite = self:showIcon(spriteID, objectID)
+        -- If the square can't mask it, the radial keeps its old mask until
+        -- the next Apply falls back to the wipe.
+        if self.swipeStyle == "radial" and self.radial ~= nil then maskRadial(self.radial, sprite) end
+        -- The grey copy may have changed with it.
+        self.dimmed = nil
+        self:redraw()
     end
     if name ~= self.name or arrow ~= self.arrow then
         self.name, self.arrow = name, arrow
@@ -617,9 +625,8 @@ end
 --- sweeping from full. The radial (RadialProgressOverlay) reveals its mask
 --- by progress = (curValue - initialValue) / (endValue - initialValue);
 --- Start sets curValue to initialValue, and with AUTOMATIC it then counts
---- up in real seconds by itself. curValue can be written once it's running
---- (confirmed in game); if that ever doesn't stick, the swipe runs over the
---- time left alone.
+--- up in real seconds by itself. curValue can be written once it's running;
+--- if that ever doesn't stick, the swipe runs over the time left alone.
 ---@param remaining number Seconds left.
 ---@param total number? The timer's length.
 ---@param flags integer Start flags.

@@ -10,6 +10,7 @@ Doc comments use **LuaCATS annotations** (`---@param`, `---@return`, `---@class`
 - **Say what the code can't.** Explain the why, the units, the edge cases and what the caller must do. Don't narrate what the next line plainly does.
 - **Use an example only when a rule is hard to state in words.** An offset measured inwards is one: `-- "topright" with x = 10 sits 10 px in from the right edge.`
 - **Keep history out**, unless the code exists because of it. A migration function says what it converts from, but the code it replaced isn't described anywhere else.
+- **State facts, not how they were found.** Leave out "seen in game", "confirmed", "probed" and the like: a comment says what's true. A fact not yet checked gets a `TODO:` saying what to check.
 - **Put game facts and pitfalls once**, where they're enforced. Write the full explanation at the code that handles the quirk. Give other places one line that points back to it (`-- See ensurePart: parts made late stack on top.`).
 - **Inline comments explain one decision**, on the line before the code they're about, not trailing it.
 - **A constant's comment says what the value is**, nothing more: `-- The tier a weapon's name ends with ("Death guard (tier 70)").` Why it's used, and how, goes at the code that uses it.
@@ -180,7 +181,7 @@ The shared type, defined once in `Auras/Store/aura-record.lua`:
 
 - Every new or changed function has a summary, a typed `@param` for each parameter and a `@return` for each value.
 - No table shape is described twice: each refers to its `@class`.
-- Comments are short and say why, with no narration and no history.
+- Comments are short and say why, with no narration, no history and no "seen in game".
 - Names have units where needed, don't get abbreviated beyond the usual ones, and use one word per concept. There are no single-letter names outside loop counters and coordinates.
 - Code inside functions reads without comments:
   - blocks that need a "what" comment become named functions;

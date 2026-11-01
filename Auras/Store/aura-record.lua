@@ -15,6 +15,7 @@
 ---@field name string Shown in the aura list.
 ---@field display DisplayID
 ---@field source string? Data source id; nil until chosen.
+---@field sourceOptions SourceOptions? Options of its source's own; nil when none are set.
 ---@field enabled boolean Whether it's drawn.
 ---@field colour integer Fill, 0xRRGGBBAA.
 ---@field showText boolean
@@ -34,6 +35,12 @@
 ---@field group integer? Parent group's id; nil at the top level.
 ---@field width number? From the display type's defaults; groups have none.
 ---@field height number?
+
+--- Options only some sources have, set in the Trigger tab and dropped when
+--- the aura's source changes. Each is saved only while ticked.
+---@class SourceOptions
+---@field hideWithoutSpecial boolean? "Equipped weapon": not loaded while it stands for no special (see dataSources.EquippedSpecialID).
+---@field rememberSpecial boolean? "Equipped weapon": keeps showing the last special worn after switching to a weapon without one.
 
 local anchors = require("Auras/Helpers/anchors")
 local conditions = require("Auras/Registries/conditions")
@@ -69,6 +76,8 @@ local NEW_GROUP_ANCHOR = "centre"
 -- Options that no longer exist, dropped on load so they stop being saved:
 -- showInitialTick went with reading buffs off the buff bar.
 local RETIRED_FIELDS = { showInitialTick = true }
+-- Every SourceOptions field; all are on/off.
+local SOURCE_OPTION_KEYS = { "hideWithoutSpecial", "rememberSpecial" }
 
 --- Whether an aura is a group or a dynamic group.
 ---@param aura Aura?
@@ -128,6 +137,7 @@ end
 ---@param aura Aura Changed in place.
 function auraRecord.Tidy(aura)
     if aura.conditions ~= nil and #aura.conditions == 0 then aura.conditions = nil end
+    if aura.sourceOptions ~= nil and next(aura.sourceOptions) == nil then aura.sourceOptions = nil end
     local load = aura.load
     if load == nil then return end
     if load.options ~= nil and next(load.options) == nil then load.options = nil end
@@ -334,6 +344,19 @@ local function convertConditions(list, direction)
     return #converted > 0 and converted or nil
 end
 
+--- Copies source options, keeping only the known ones that are ticked.
+---@param saved any
+---@return SourceOptions? options nil if none are ticked.
+local function copySourceOptions(saved)
+    if type(saved) ~= "table" then return nil end
+    local options = {}
+    for _, key in ipairs(SOURCE_OPTION_KEYS) do
+        if saved[key] == true then options[key] = true end
+    end
+    if next(options) == nil then return nil end
+    return options
+end
+
 --- A saved field's value as the plugin holds it.
 ---@param key string
 ---@param value any
@@ -343,6 +366,7 @@ local function loadField(key, value)
     if key == "texts" then return auraTexts.Convert(value, DECODE) end
     -- Load options are plain values (no colours), so a copy is all they need.
     if key == "load" then return type(value) == "table" and conditions.Copy(value) or nil end
+    if key == "sourceOptions" then return copySourceOptions(value) end
     if isColourKey(key) then return decodeColour(value) end
     -- Every other numeric aura field (id, position, sizes) is an integer.
     if type(value) == "number" then return toInteger(value) end
@@ -399,6 +423,8 @@ function auraRecord.ToSaved(aura)
             copy[key] = auraTexts.Convert(value, ENCODE)
         elseif key == "load" then
             copy[key] = conditions.Copy(value)
+        elseif key == "sourceOptions" then
+            copy[key] = copySourceOptions(value)
         else
             copy[key] = isColourKey(key) and encodeColour(value) or value
         end

@@ -11,6 +11,7 @@ local buffCatalogue = require("GameData/Catalogues/buff-catalogue")
 local channel = require("GameData/Trackers/channel")
 local specialAttackCatalogue = require("GameData/Catalogues/special-attack-catalogue")
 local playerResources = require("GameData/Trackers/player-resources")
+local wornEquipment = require("GameData/Trackers/worn-equipment")
 local gameApi = require("GameData/game-api")
 
 local dataSources = {}
@@ -186,15 +187,93 @@ local function buildCooldownSources()
 end
 
 local SPECIAL_ATTACK_ID_PREFIX = "special_attack_"
+local EQUIPPED_SPECIAL_NAME = "Equipped weapon"
+dataSources.EQUIPPED_SPECIAL_ID = SPECIAL_ATTACK_ID_PREFIX .. "equipped"
+---@type table<string, DataSource> A special's key (see SpecialAttackEntry.key) to its source.
+local specialsByKey = {}
+-- The main hand item equippedSpecial was found for (false: not found yet).
+local equippedWeapon = false
+---@type DataSource?
+local equippedSpecial = nil
+---@type string? The last special source found worn this session, for auras that remember it (see EquippedSpecialID).
+local lastSpecialID = nil
 
---- Builds a source per special attack with a cooldown, found with the buffs
---- (see specialAttackCatalogue.List).
+--- The special source for a worn weapon (see specialAttackCatalogue.Find).
+---@param itemID integer?
+---@return DataSource?
+local function specialFor(itemID)
+    if itemID == nil then return nil end
+    local key = specialAttackCatalogue.Find(itemID)
+    return key and specialsByKey[key]
+end
+
+--- The special of the main hand weapon, where every special with a cooldown
+--- is. Found again only when the weapon changes.
+---@return DataSource?
+local function findEquippedSpecial()
+    local mainHand = wornEquipment.Item(wornEquipment.SLOTS.MAIN_HAND)
+    if mainHand ~= equippedWeapon then
+        equippedWeapon = mainHand
+        equippedSpecial = specialFor(mainHand)
+        if equippedSpecial ~= nil then lastSpecialID = equippedSpecial.id end
+    end
+    return equippedSpecial
+end
+
+--- The special source "Equipped weapon" stands for now: the worn weapon's,
+--- else, when remembering, the last one worn this session.
+---@param remember boolean
+---@return string? sourceID nil if there's none.
+function dataSources.EquippedSpecialID(remember)
+    local special = findEquippedSpecial()
+    if special ~= nil then return special.id end
+    if remember and lastSpecialID ~= nil and SOURCES_BY_ID[lastSpecialID] ~= nil then return lastSpecialID end
+    return nil
+end
+
+--- "Equipped weapon"'s values: its special's cooldown, else 0 of 0.
+---@return number? remaining
+---@return number? total
+---@return number? unrounded
+---@return integer? charges
+local function readEquippedSpecial()
+    local special = findEquippedSpecial()
+    if special == nil then return 0, 0 end
+    return special.read()
+end
+
+--- "Equipped weapon"'s details: its special's name and icon.
+---@return string name
+---@return integer? spriteID
+---@return integer? objectID
+local function equippedSpecialDetails()
+    local special = findEquippedSpecial()
+    if special == nil then return EQUIPPED_SPECIAL_NAME, nil, nil end
+    return special.name or special.label, special.icon, special.iconObject
+end
+
+--- Builds "Equipped weapon", then a source per special attack with a
+--- cooldown, found with the buffs (see specialAttackCatalogue.List).
 local function buildSpecialAttackSources()
-    specialAttackSources = {}
+    specialAttackSources = {
+        {
+            id = dataSources.EQUIPPED_SPECIAL_ID,
+            type = "specialAttack",
+            label = EQUIPPED_SPECIAL_NAME,
+            colour = COOLDOWN_COLOUR,
+            smooth = true,
+            timed = true,
+            state = "cooldown",
+            read = readEquippedSpecial,
+            details = equippedSpecialDetails,
+        },
+    }
+    specialsByKey = {}
+    equippedWeapon = false
     for _, special in ipairs(specialAttackCatalogue.List(buffCatalogue.List())) do
         local varBase = special.var
-        abilityCooldowns.Watch(varBase)
-        specialAttackSources[#specialAttackSources + 1] = {
+        abilityCooldowns.Watch(varBase, special.endClientVar)
+        local source = {
             id = SPECIAL_ATTACK_ID_PREFIX .. string.lower(special.key),
             type = "specialAttack",
             -- Named after the weapon, which is what players search for;
@@ -209,6 +288,8 @@ local function buildSpecialAttackSources()
             state = "cooldown",
             read = function() return readCooldown(varBase) end,
         }
+        specialAttackSources[#specialAttackSources + 1] = source
+        specialsByKey[special.key] = source
     end
 end
 
@@ -473,7 +554,8 @@ function dataSources.Get(sourceID)
 end
 
 --- A source's name, sprite icon and item icon as they are now: its own,
---- except "Any channel", which takes whatever is being channelled, and the
+--- except "Any channel", which takes whatever is being channelled,
+--- "Equipped weapon", which takes the worn weapon's special, and the
 --- quiver, which shows its ammo.
 ---@param sourceID string?
 ---@return string? name nil if the source is unknown.

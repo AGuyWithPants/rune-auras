@@ -5,7 +5,8 @@
 -- Nothing exposes the current server tick, so this keeps its own clock: it
 -- counts ServerLogic events (one per tick) and syncs that count with the
 -- server whenever a _START var changes, since a fresh _START is "now", or
--- after a reload from the latest _START's _START_CLIENT.
+-- after a reload from the latest _START's _START_CLIENT, else a running
+-- special attack's _END_CLIENT.
 
 local abilityCatalogue = require("GameData/Catalogues/ability-catalogue")
 local gameClock = require("GameData/Trackers/game-clock")
@@ -51,6 +52,8 @@ local highestStart = nil
 local syncStart = nil
 ---@type string?
 local syncStartName = nil
+---@type table<string, string> Var base name to its end VarClient, for the cooldowns that have one (special attacks).
+local endClientVars = {}
 -- The ServerLogic count (localTick) syncFromClient last tried on.
 local syncTriedTick = nil
 
@@ -152,7 +155,9 @@ local toTenths = gameClock.ToTenths
 --- Registers a cooldown so its _START counts towards the lower bound on the
 --- server tick. The data sources register every ability and special attack.
 ---@param varBase string E.g. COMBATV2_COOLDOWN_STRENGTH_BERSERK.
-function abilityCooldowns.Watch(varBase)
+---@param endClientVar string? A VarClient holding the client Logic tick the cooldown ends on, to sync the clock from while it runs.
+function abilityCooldowns.Watch(varBase, endClientVar)
+    endClientVars[varBase] = endClientVar
     if watchedSet[varBase] then return end
     watchedSet[varBase] = true
     watched[#watched + 1] = varBase
@@ -175,31 +180,57 @@ local function tickLowerBound()
 end
 
 --- A cooldown var's value (a _START or _END, e.g. an ability's
---- COMBATV2_COOLDOWN_<name>_START), from the cache VarTransmit keeps current, so it costs nothing to
---- read every frame.
+--- COMBATV2_COOLDOWN_<name>_START), from the cache VarTransmit keeps
+--- current, so it costs nothing to read every frame.
 ---@param name string
 ---@return number? value nil if there's none.
 function abilityCooldowns.VarValue(name)
     return readCached(name)
 end
 
---- Syncs the clock from the latest ability use, for when none has been
---- seen since loading (a reload): its _START_CLIENT is the Logic tick of the
---- server tick its _START holds.
+--- Syncs the clock from the latest ability use: its _START_CLIENT is the
+--- Logic tick of the server tick its _START holds.
+---@param logicTick integer
+---@return boolean synced
+local function syncFromStartClient(logicTick)
+    if syncStart == nil then return false end
+    local varConfig = gameApi.Cached(gameApi.VarClient, syncStartName .. CLIENT_SUFFIX)
+    local startClient = varConfig and tonumber(gameApi.VarValue(varConfig))
+    if startClient == nil or startClient < 0 or startClient > logicTick then return false end
+    local ticksSince = (logicTick - startClient) / gameClock.LOGIC_TICKS_PER_SERVER_TICK
+    tickOffset = math.floor(syncStart + ticksSince - gameClock.TickFraction() + 0.5) - localTick
+    return true
+end
+
+--- Syncs the clock from a running cooldown with an end VarClient (a special
+--- attack's): that's the Logic tick of the server tick its _END holds.
+---@param logicTick integer
+local function syncFromEndClient(logicTick)
+    for varBase, clientName in pairs(endClientVars) do
+        local endTick = readCached(namesFor(varBase).endName)
+        local varConfig = gameApi.Cached(gameApi.VarClient, clientName)
+        local endClient = varConfig and tonumber(gameApi.VarValue(varConfig))
+        if endTick ~= nil and endTick > 0 and endClient ~= nil and endClient > logicTick then
+            local ticksUntil = (endClient - logicTick) / gameClock.LOGIC_TICKS_PER_SERVER_TICK
+            tickOffset = math.floor(endTick - ticksUntil - gameClock.TickFraction() + 0.5) - localTick
+            return
+        end
+    end
+end
+
+--- Syncs the clock for when no use has been seen since loading (a reload):
+--- from the latest ability use, else a special attack still on cooldown.
 local function syncFromClient()
     local logicTick = gameClock.LogicTick()
     -- Scans the watched _STARTs, which finds syncStart after a reload.
     tickLowerBound()
-    if syncStart == nil or logicTick == nil then return end
-    local varConfig = gameApi.Cached(gameApi.VarClient, syncStartName .. CLIENT_SUFFIX)
-    local startClient = varConfig and tonumber(gameApi.VarValue(varConfig))
-    if startClient == nil or startClient < 0 or startClient > logicTick then return end
-    local ticksSince = (logicTick - startClient) / gameClock.LOGIC_TICKS_PER_SERVER_TICK
-    tickOffset = math.floor(syncStart + ticksSince - gameClock.TickFraction() + 0.5) - localTick
+    if logicTick == nil or syncFromStartClient(logicTick) then return end
+    syncFromEndClient(logicTick)
 end
 
---- The current server tick, syncing the clock from the latest use's
---- _START_CLIENT if no use has yet (tried once a server tick).
+--- The current server tick, syncing the clock from the game's client-tick
+--- VarClients if no use has been seen yet (see syncFromClient; tried once
+--- a server tick).
 ---@return integer? tick nil until the clock is synced.
 function abilityCooldowns.ServerTick()
     if tickOffset == nil and syncTriedTick ~= localTick then
@@ -261,7 +292,7 @@ function abilityCooldowns.GetCooldown(varBase)
     return result.remaining, result.total, result.unrounded
 end
 
---- How many charges an ability has ready. Seen in game with Surge: using a
+--- How many charges an ability has ready. With Surge, using a
 --- charge while both are ready sets only CHARGE2 (the ability stays
 --- usable); using the last sets the base vars, whose cooldown runs until a
 --- charge is back, and CHARGE2_END is when both are.

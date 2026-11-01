@@ -10,15 +10,14 @@ local playerState = {}
 
 ---@alias WeaponStyle "melee"|"ranged"|"magic"|"necromancy"
 
--- COMBATV2_MAINHAND_STYLE / _OFFHAND_STYLE value to style, seen in game
--- with one- and two-handed, plain and augmented weapons of each style
--- (neither changes it). They may be weapon categories rather than styles,
--- so other weapon types could use other values: unknown ones are logged
--- once (DEBUG). 9 is Malachi's tooth, a crossbow (seen in game).
+-- COMBATV2_MAINHAND_STYLE / _OFFHAND_STYLE value to style, the same for
+-- one- and two-handed, plain and augmented weapons. They may be weapon
+-- categories rather than styles, so other weapon types could use other
+-- values: unknown ones are logged once. 9 is Malachi's tooth, a crossbow.
 ---@type table<integer, WeaponStyle>
 local STYLES = { [6] = "melee", [8] = "ranged", [9] = "ranged", [1] = "magic", [37] = "necromancy" }
--- 7 is nothing equipped and -1 an empty off hand (both seen in game). 0
--- hasn't been seen; it's taken as no weapon rather than an unknown style.
+-- 7 is nothing equipped and -1 an empty off hand. 0 is taken as no weapon
+-- rather than an unknown style.
 local NO_WEAPON = { [7] = true, [-1] = true, [0] = true }
 
 local readVarPlayer = gameApi.CachedVarPlayer
