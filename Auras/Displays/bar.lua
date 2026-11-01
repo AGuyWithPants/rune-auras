@@ -7,6 +7,7 @@ local Border = require("Auras/Displays/Parts/border")
 local placement = require("Auras/Displays/Parts/placement")
 local SourceIcon = require("Auras/Displays/Parts/source-icon")
 local dataSources = require("Auras/Registries/data-sources")
+local gameApi = require("GameData/game-api")
 local gameClock = require("GameData/Trackers/game-clock")
 local TextNodes = require("Auras/Displays/Parts/text-nodes")
 local textTemplate = require("Auras/Helpers/text-template")
@@ -28,11 +29,19 @@ local newRectangle = rectangles.Filled
 ---@field iconSide "left"|"right"
 ---@field showTicks boolean Marks at each 0.6s server tick, for timed sources.
 ---@field tickColour integer
+---@field texture string The fill's BarTexture id; "" for a solid fill.
+
+--- A fill texture: an image in resources/Textures, tinted by the bar's colour.
+---@class BarTexture
+---@field id string The image's name; "" for a solid fill.
+---@field label string
+---@field tile boolean? Repeat at the image's size rather than stretch, so a pattern keeps its spacing as the fill shrinks.
 
 ---@class Bar: Placed
 ---@field body userdata Everything but the icon, beside the icon if shown.
 ---@field background userdata
----@field fill userdata
+---@field fill userdata A solid rectangle, or a sprite showing the texture.
+---@field textureID string? The texture `fill` was made for; nil before the first Apply.
 ---@field frame Border? Made when it first has a thickness.
 ---@field icon SourceIcon? Made when first shown.
 ---@field tickLayer userdata? Made with the first tick.
@@ -57,7 +66,23 @@ Bar.defaults = {
     iconSide = "left",
     showTicks = false,
     tickColour = 0x000000B4,
+    texture = "",
 }
+
+-- The fill textures, for the editor's list. They're grey or white, so the
+-- bar's colour tints them (see resources/Textures/CREDITS.md).
+---@type BarTexture[]
+Bar.textures = {
+    { id = "", label = "None (solid)" },
+    { id = "Statusbar_Clean", label = "Clean" },
+    { id = "Square_AlphaGradient", label = "Fade" },
+    { id = "Statusbar_Stripes", label = "Stripes", tile = true },
+    { id = "Statusbar_Stripes_Thick", label = "Stripes (thick)", tile = true },
+    { id = "Statusbar_Stripes_Thin", label = "Stripes (thin)", tile = true },
+}
+---@type table<string, BarTexture>
+local texturesByID = {}
+for _, texture in ipairs(Bar.textures) do texturesByID[texture.id] = texture end
 
 local MIN_WIDTH, MAX_WIDTH = 60, 600
 local MIN_HEIGHT, MAX_HEIGHT = 8, 60
@@ -96,7 +121,7 @@ function Bar.new(parent, aura, groupPoint)
         self.body = ui.Layer.new(self.root)
         self.body.clickthrough = true
         self.background = newRectangle(self.body, aura.backgroundColour)
-        self.fill = newRectangle(self.body, aura.colour)
+        -- The fill is made by Apply (setTexture).
         self.ticks = {}
         -- Laid out on the body (beside the icon), but drawn beside the root
         -- so they aren't clipped to the bar.
@@ -141,6 +166,7 @@ end
 ---@param aura BarOptions
 function Bar:Apply(aura)
     self:layoutIcon(aura)
+    self:setTexture(aura.texture or Bar.defaults.texture)
     local thickestBorder = math.min(MAX_BORDER, (self.height - MIN_INNER_HEIGHT) // 2)
     self.border = clamp(aura.borderThickness or Bar.defaults.borderThickness, 0, thickestBorder)
     self:layoutFrame()
@@ -166,6 +192,41 @@ function Bar:Apply(aura)
     self.background.rgba = self.movable and placement.UNLOCKED_BACKGROUND_RGBA or aura.backgroundColour
 
     self:redraw()
+end
+
+--- A sprite showing a texture, tinted later through its rgba.
+---@param parent userdata
+---@param texture BarTexture
+---@return userdata? sprite nil if the image isn't loaded (new images need a prf).
+local function newTextureFill(parent, texture)
+    local image = gameApi.ResourceImage("Textures", texture.id)
+    if image == nil then return nil end
+    local sprite = ui.Sprite.new(parent)
+    sprite.clickthrough = true
+    sprite.isTiling = texture.tile == true
+    -- See setSpriteImage in Auras/Displays/icon.lua: assigning can fail.
+    if not pcall(function() sprite.sprite = image end) then
+        sprite:Destroy()
+        return nil
+    end
+    return sprite
+end
+
+--- Remakes the fill when the texture changes. Apply colours, sizes and
+--- places it.
+---@param textureID string A BarTexture id; an unknown one, like "", is solid.
+function Bar:setTexture(textureID)
+    if textureID == self.textureID then return end
+    self.textureID = textureID
+    if self.fill ~= nil then self.fill:Destroy() end
+    local texture = texturesByID[textureID]
+    local textured = texture ~= nil and texture.id ~= "" and newTextureFill(self.body, texture)
+    -- A texture that won't load shows solid.
+    self.fill = textured or newRectangle(self.body, 0)
+    -- Made last, so it's on top, but clear of the border inside it. The
+    -- ticks are raised back over it, rather than it moved back: a component
+    -- made this frame ignores stacking (see Stacking quirks in AGENTS.md).
+    if self.tickLayer ~= nil then self.tickLayer:MoveToFront() end
 end
 
 --- Places the border and the background and fill inside it, making the

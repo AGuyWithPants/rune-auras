@@ -1,7 +1,8 @@
 -- Bar editor controls (see TypeEditor in UI/Editor/aura-editor).
 
 local dataSources = require("Auras/Registries/data-sources")
-local limits = require("Auras/Displays/bar").limits
+local Bar = require("Auras/Displays/bar")
+local limits = Bar.limits
 local choiceCombo = require("UI/Controls/choice-combo")
 local colourInput = require("UI/Controls/colour-input")
 local numberInput = require("UI/Controls/number-input")
@@ -34,7 +35,7 @@ function barEditor.size(view, aura, update)
     })
 end
 
---- The Appearance section: fill options, icon, ticks, colours and border.
+--- The Appearance section: fill options, icon, texture, ticks, colours and border.
 --- Smooth fill only shows for sources that report a value between ticks,
 --- and ticks only for times in seconds.
 ---@param view EditorView
@@ -88,6 +89,12 @@ function barEditor.appearance(view, aura, update)
         choices = choiceCombo.SIDES,
         value = aura.iconSide or "left",
         onChange = function(side) update("iconSide", side) end,
+    })
+    choiceCombo.Add(view, {
+        label = "Texture",
+        choices = Bar.textures,
+        value = aura.texture or Bar.defaults.texture,
+        onChange = function(textureID) update("texture", textureID) end,
     })
     if timed then
         colourInput.Add(view, {
